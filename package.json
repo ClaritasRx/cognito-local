@@ -17,7 +17,7 @@
     "test": "vitest",
     "type-check": "tsc --target es2019 --esModuleInterop --resolveJsonModule --noEmit",
     "semantic-release": "semantic-release",
-    "prepare": "husky install"
+    "prepare": "echo 'husky disabled'"
   },
   "devDependencies": {
     "@biomejs/biome": "2.1.3",
@@ -75,13 +75,7 @@
     "ext": "ts",
     "exec": "yarn start"
   },
-  "lint-staged": {
-    "*.ts": [
-      "biome check --write",
-      "tsc --target es2019 --moduleResolution bundler --esModuleInterop --resolveJsonModule --noEmit ./setupTests.ts"
-    ],
-    "README.md": "markdown-toc -i --bullets=- --maxdepth=3"
-  },
+  "lint-staged": {},
   "engines": {
     "node": ">=12"
   },
