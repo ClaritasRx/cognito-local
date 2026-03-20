@@ -3,6 +3,8 @@ import type {
   InitiateAuthRequest,
   InitiateAuthResponse,
 } from "aws-sdk/clients/cognitoidentityserviceprovider";
+import { randomBytes } from "node:crypto";
+import { UserPool as SrpUserPool } from "cognito-srp";
 import { v4 } from "uuid";
 import {
   InvalidParameterError,
@@ -216,6 +218,77 @@ const userPasswordAuthFlow = async (
   );
 };
 
+const userSrpAuthFlow = async (
+  ctx: Context,
+  req: InitiateAuthRequest,
+  userPool: UserPoolService,
+  _userPoolClient: AppClient,
+  _services: InitiateAuthServices,
+): Promise<InitiateAuthResponse> => {
+  if (!req.AuthParameters) {
+    throw new InvalidParameterError(
+      "Missing required parameter authParameters",
+    );
+  }
+  if (!req.AuthParameters.USERNAME) {
+    throw new InvalidParameterError("AuthParameters USERNAME is required");
+  }
+  if (!req.AuthParameters.SRP_A) {
+    throw new InvalidParameterError("AuthParameters SRP_A is required");
+  }
+
+  const user = await userPool.getUserByUsername(ctx, req.AuthParameters.USERNAME);
+  if (!user) {
+    throw new NotAuthorizedError();
+  }
+  if (user.UserStatus === "RESET_REQUIRED") {
+    throw new PasswordResetRequiredError();
+  }
+  if (user.UserStatus === "FORCE_CHANGE_PASSWORD") {
+    return newPasswordChallenge(user);
+  }
+  if (user.UserStatus === "UNCONFIRMED") {
+    throw new UserNotConfirmedException();
+  }
+
+  // Generate SRP challenge using cognito-srp.
+  // cognito-local stores passwords in plaintext, so we derive the SRP
+  // verifier on-the-fly from the stored password.
+  const poolName = userPool.options.Id.split("_")[1] || userPool.options.Id;
+  const srpPool = new SrpUserPool(poolName);
+  const srpUser = await srpPool.createUser({
+    username: user.Username,
+    password: user.Password,
+  });
+
+  const challenge = await srpPool.getServerChallenge(srpUser);
+  const B = challenge.calculateB();
+  const session = challenge.getSession(req.AuthParameters.SRP_A);
+  const secretBlock = randomBytes(64).toString("base64");
+
+  // Store SRP session state on the user so RespondToAuthChallenge can verify
+  await userPool.saveUser(ctx, {
+    ...user,
+    SrpSession: {
+      hkdf: session.getHkdf(),
+      secretBlock,
+      poolName,
+    },
+  });
+
+  return {
+    ChallengeName: "PASSWORD_VERIFIER",
+    ChallengeParameters: {
+      SALT: srpUser.salt,
+      SECRET_BLOCK: secretBlock,
+      SRP_B: B.toString("hex"),
+      USER_ID_FOR_SRP: user.Username,
+      USERNAME: user.Username,
+    },
+    Session: v4(),
+  };
+};
+
 const refreshTokenAuthFlow = async (
   ctx: Context,
   req: InitiateAuthRequest,
@@ -288,6 +361,8 @@ export const InitiateAuth =
 
     if (req.AuthFlow === "USER_PASSWORD_AUTH") {
       return userPasswordAuthFlow(ctx, req, userPool, userPoolClient, services);
+    } else if (req.AuthFlow === "USER_SRP_AUTH") {
+      return userSrpAuthFlow(ctx, req, userPool, userPoolClient, services);
     } else if (
       req.AuthFlow === "REFRESH_TOKEN" ||
       req.AuthFlow === "REFRESH_TOKEN_AUTH"

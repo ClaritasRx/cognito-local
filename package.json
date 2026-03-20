@@ -52,6 +52,7 @@
     "aws-sdk": "^2.1145.0",
     "body-parser": "^2.2.0",
     "boxen": "^5.1.2",
+    "cognito-srp": "^0.2.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",

@@ -2,6 +2,7 @@ import type {
   RespondToAuthChallengeRequest,
   RespondToAuthChallengeResponse,
 } from "aws-sdk/clients/cognitoidentityserviceprovider";
+import { Session } from "cognito-srp";
 import {
   CodeMismatchError,
   InvalidParameterError,
@@ -37,7 +38,9 @@ export const RespondToAuthChallenge =
     if (!req.ChallengeResponses.USERNAME) {
       throw new InvalidParameterError("Missing required parameter USERNAME");
     }
-    if (!req.Session) {
+
+    // PASSWORD_VERIFIER doesn't require Session (Amplify may not send it)
+    if (req.ChallengeName !== "PASSWORD_VERIFIER" && !req.Session) {
       throw new InvalidParameterError("Missing required parameter Session");
     }
 
@@ -52,7 +55,45 @@ export const RespondToAuthChallenge =
       throw new NotAuthorizedError();
     }
 
-    if (req.ChallengeName === "SMS_MFA") {
+    if (req.ChallengeName === "PASSWORD_VERIFIER") {
+      if (
+        !req.ChallengeResponses.PASSWORD_CLAIM_SIGNATURE ||
+        !req.ChallengeResponses.PASSWORD_CLAIM_SECRET_BLOCK ||
+        !req.ChallengeResponses.TIMESTAMP
+      ) {
+        throw new InvalidParameterError(
+          "Missing required PASSWORD_VERIFIER challenge response parameters",
+        );
+      }
+
+      // biome-ignore lint/suspicious/noExplicitAny: SrpSession is dynamically stored
+      const srpSession = (user as any).SrpSession;
+      if (!srpSession?.hkdf || !srpSession?.poolName) {
+        throw new NotAuthorizedError();
+      }
+
+      // Rehydrate the SRP session and verify the client's signature
+      const session = new Session(
+        srpSession.poolName,
+        user.Username,
+        srpSession.hkdf,
+      );
+      const expectedSignature = session.calculateSignature(
+        req.ChallengeResponses.PASSWORD_CLAIM_SECRET_BLOCK,
+        req.ChallengeResponses.TIMESTAMP,
+      );
+
+      if (expectedSignature !== req.ChallengeResponses.PASSWORD_CLAIM_SIGNATURE) {
+        throw new NotAuthorizedError();
+      }
+
+      // Clear SRP session state
+      await userPool.saveUser(ctx, {
+        ...user,
+        SrpSession: undefined,
+        UserLastModifiedDate: clock.get(),
+      });
+    } else if (req.ChallengeName === "SMS_MFA") {
       if (user.MFACode !== req.ChallengeResponses.SMS_MFA_CODE) {
         throw new CodeMismatchError();
       }
@@ -95,15 +136,19 @@ export const RespondToAuthChallenge =
 
     const userGroups = await userPool.listUserGroupMembership(ctx, user);
 
+    const tokens = await tokenGenerator.generate(
+      ctx,
+      user,
+      userGroups,
+      userPoolClient,
+      req.ClientMetadata,
+      "Authentication",
+    );
+
+    await userPool.storeRefreshToken(ctx, tokens.RefreshToken, user);
+
     return {
       ChallengeParameters: {},
-      AuthenticationResult: await tokenGenerator.generate(
-        ctx,
-        user,
-        userGroups,
-        userPoolClient,
-        req.ClientMetadata,
-        "Authentication",
-      ),
+      AuthenticationResult: tokens,
     };
   };
