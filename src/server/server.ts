@@ -73,6 +73,18 @@ export const createServer = (
     res.status(200).json({ ok: true });
   });
 
+  // Cognito hosted UI logout endpoint.
+  // Real Cognito redirects to logout_uri after invalidating the session.
+  // We just redirect — there's no server-side session to invalidate.
+  app.get("/logout", (req, res) => {
+    const logoutUri = req.query.logout_uri;
+    if (typeof logoutUri === "string") {
+      res.redirect(302, logoutUri);
+    } else {
+      res.status(400).json({ message: "Missing logout_uri parameter" });
+    }
+  });
+
   app.post("/", (req, res) => {
     const xAmzTarget = req.headers["x-amz-target"];
 
