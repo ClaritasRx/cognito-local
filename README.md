@@ -1,7 +1,7 @@
 # Cognito Local
 
 > [!NOTE]  
-> Forked into CRx from https://github.com/jagregory/cognito-local to add a few missing Cognito functions that we use.
+> Forked into CRx from https://github.com/jagregory/cognito-local to add missing Cognito function(s) needed to support mocking Cognito for local development on the [SaaS app](https://github.com/ClaritasRx/ascend-saas-platform).
 
 A _Good Enough_ offline emulator for [Amazon Cognito](https://aws.amazon.com/cognito/).
 
