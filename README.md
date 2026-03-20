@@ -1,6 +1,7 @@
 # Cognito Local
 
-![CI](https://github.com/jagregory/cognito-local/workflows/CI/badge.svg)
+> [!NOTE]  
+> Forked into CRx from https://github.com/jagregory/cognito-local to add a few missing Cognito functions that we use.
 
 A _Good Enough_ offline emulator for [Amazon Cognito](https://aws.amazon.com/cognito/).
 
